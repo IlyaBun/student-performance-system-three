@@ -1,6 +1,6 @@
 """
-client.py - Клиентская часть системы оценки успеваемости (ИАС ПолесГУ)
-Графический интерфейс на customtkinter со всеми вкладками
+client.py - Клиентская часть ИС ПолесГУ
+Графический интерфейс на customtkinter
 """
 
 import customtkinter as ctk
@@ -8,1283 +8,495 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from typing import Optional, Dict, Any, List
-import server
+from datetime import datetime
+from typing import Dict, List
 
-
-# Настройка стиля
-ctk.set_appearance_mode("dark")
+ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
+COLORS = {
+    'primary': '#2E86AB', 'secondary': '#56C596', 'accent': '#F6AE2D',
+    'danger': '#E74C3C', 'warning': '#F39C12', 'success': '#27AE60',
+    'info': '#3498DB', 'admin_bg': '#9B59B6', 'teacher_bg': '#3498DB',
+    'student_bg': '#2ECC71', 'card_bg': '#FFFFFF', 'hover': '#ECF0F1',
+}
 
 class LoginWindow(ctk.CTk):
-    """Окно авторизации"""
-    
-    def __init__(self, on_login_success):
+    def __init__(self, db):
         super().__init__()
-        
-        self.on_login_success = on_login_success
-        
-        self.title("ИАС ПолесГУ - Авторизация")
-        self.geometry("450x350")
+        self.db = db
+        self.title("ИС ПолесГУ - Вход")
+        self.geometry("500x650")
         self.resizable(False, False)
+        self.grid_columnconfigure(0, weight=1)
         
-        # Центрирование окна
-        self.center_window()
+        main_frame = ctk.CTkFrame(self, corner_radius=15)
+        main_frame.grid(row=0, column=0, sticky="nsew", padx=30, pady=30)
+        main_frame.grid_columnconfigure(0, weight=1)
         
-        self.create_widgets()
-    
-    def center_window(self):
-        """Центрировать окно на экране"""
-        self.update_idletasks()
-        width = 450
-        height = 350
-        x = (self.winfo_screenwidth() // 2) - (width // 2)
-        y = (self.winfo_screenheight() // 2) - (height // 2)
-        self.geometry(f"{width}x{height}+{x}+{y}")
-    
-    def create_widgets(self):
-        """Создание виджетов авторизации"""
-        # Заголовок
-        title_frame = ctk.CTkFrame(self, fg_color="transparent")
-        title_frame.pack(pady=(40, 30))
+        ctk.CTkLabel(main_frame, text="ИС ПОЛЕСГУ", font=ctk.CTkFont(size=36, weight="bold"), text_color=COLORS['primary']).grid(row=0, column=0, pady=(30, 5))
+        ctk.CTkLabel(main_frame, text="Информационная система", font=ctk.CTkFont(size=14), text_color="gray").grid(row=1, column=0)
         
-        title_label = ctk.CTkLabel(
-            title_frame,
-            text="ИАС ПолесГУ",
-            font=ctk.CTkFont(size=28, weight="bold")
-        )
-        title_label.pack()
+        self.mode_var = tk.StringVar(value="login")
+        mode_switch = ctk.CTkSegmentedButton(main_frame, values=["login", "register"], variable=self.mode_var, command=self.switch_mode, font=ctk.CTkFont(size=13))
+        mode_switch.grid(row=2, column=0, pady=25)
         
-        subtitle_label = ctk.CTkLabel(
-            title_frame,
-            text="Система оценки успеваемости",
-            font=ctk.CTkFont(size=14),
-            text_color="gray"
-        )
-        subtitle_label.pack()
+        form_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        form_frame.grid(row=3, column=0, sticky="ew", padx=30)
+        form_frame.grid_columnconfigure(1, weight=1)
         
-        # Форма входа
-        form_frame = ctk.CTkFrame(self, fg_color="transparent")
-        form_frame.pack(pady=20, padx=40, fill="x")
+        self.login_entry = self._create_field(form_frame, "Логин:", 0)
+        self.password_entry = self._create_field(form_frame, "Пароль:", 1, show="•")
+        self.reg_fields = {
+            'full_name': self._create_field(form_frame, "ФИО:", 2),
+            'email': self._create_field(form_frame, "Email:", 3),
+            'specialty': self._create_field(form_frame, "Специальность:", 5),
+        }
         
-        # Логин
-        login_label = ctk.CTkLabel(form_frame, text="Логин:", font=ctk.CTkFont(size=14))
-        login_label.pack(anchor="w", pady=(0, 5))
+        ctk.CTkLabel(form_frame, text="Группа:", font=ctk.CTkFont(size=13)).grid(row=4, column=0, sticky="w", pady=8)
+        self.group_combo = ttk.Combobox(form_frame, values=["ИТ-11","ИТ-12","ИТ-13","ЛП-11","ЛП-12","ЛП-13","ПР-11","ПР-12","ПР-13"], height=200, font=("Arial",12), state="disabled")
+        self.group_combo.grid(row=4, column=1, sticky="ew", pady=8, padx=(10,0))
+        self.group_combo.set("ИТ-11")
         
-        self.login_entry = ctk.CTkEntry(
-            form_frame,
-            height=40,
-            font=ctk.CTkFont(size=14),
-            placeholder_text="Введите логин"
-        )
-        self.login_entry.pack(fill="x", pady=(0, 20))
-        self.login_entry.bind("<Return>", lambda e: self.attempt_login())
+        ctk.CTkLabel(form_frame, text="Курс:", font=ctk.CTkFont(size=13)).grid(row=6, column=0, sticky="w", pady=8)
+        self.course_combo = ttk.Combobox(form_frame, values=[1,2,3,4,5], height=100, font=("Arial",12), state="disabled")
+        self.course_combo.grid(row=6, column=1, sticky="w", pady=8, padx=(10,0))
+        self.course_combo.set(1)
         
-        # Пароль
-        password_label = ctk.CTkLabel(form_frame, text="Пароль:", font=ctk.CTkFont(size=14))
-        password_label.pack(anchor="w", pady=(0, 5))
-        
-        self.password_entry = ctk.CTkEntry(
-            form_frame,
-            height=40,
-            font=ctk.CTkFont(size=14),
-            placeholder_text="Введите пароль",
-            show="*"
-        )
-        self.password_entry.pack(fill="x", pady=(0, 20))
-        self.password_entry.bind("<Return>", lambda e: self.attempt_login())
-        
-        # Кнопка входа
-        login_button = ctk.CTkButton(
-            form_frame,
-            text="Войти в систему",
-            height=45,
-            font=ctk.CTkFont(size=16, weight="bold"),
-            command=self.attempt_login
-        )
-        login_button.pack(fill="x")
-    
-    def attempt_login(self):
-        """Попытка входа"""
-        login = self.login_entry.get().strip()
-        password = self.password_entry.get().strip()
-        
+        self.action_button = ctk.CTkButton(main_frame, text="Войти", height=45, font=ctk.CTkFont(size=16, weight="bold"), fg_color=COLORS['primary'], hover_color=COLORS['secondary'], command=self.authenticate)
+        self.action_button.grid(row=4, column=0, pady=25, padx=30, sticky="ew")
+        self.toggle_reg_fields(False)
+
+    def _create_field(self, parent, label_text, row, show=None):
+        ctk.CTkLabel(parent, text=label_text, font=ctk.CTkFont(size=13)).grid(row=row, column=0, sticky="w", pady=8)
+        entry = ctk.CTkEntry(parent, height=40, font=ctk.CTkFont(size=13), show=show)
+        entry.grid(row=row, column=1, sticky="ew", pady=8, padx=(10,0))
+        return entry
+
+    def switch_mode(self, value):
+        is_reg = value == "register"
+        self.toggle_reg_fields(is_reg)
+        self.action_button.configure(text="Зарегистрироваться" if is_reg else "Войти")
+
+    def toggle_reg_fields(self, show):
+        state = "normal" if show else "disabled"
+        for w in self.reg_fields.values(): w.configure(state=state)
+        self.group_combo.configure(state="readonly" if show else "disabled")
+        self.course_combo.configure(state="readonly" if show else "disabled")
+
+    def authenticate(self):
+        login, password = self.login_entry.get().strip(), self.password_entry.get().strip()
         if not login or not password:
             messagebox.showerror("Ошибка", "Введите логин и пароль")
             return
-        
-        user = server.db.authenticate(login, password)
-        
+        if self.mode_var.get() == "register":
+            self.register_user(login, password)
+        else:
+            self.login_user(login, password)
+
+    def register_user(self, login, password):
+        full_name = self.reg_fields['full_name'].get().strip()
+        email = self.reg_fields['email'].get().strip()
+        specialty = self.reg_fields['specialty'].get().strip()
+        if not full_name or not specialty:
+            messagebox.showerror("Ошибка", "Заполните ФИО и специальность")
+            return
+        success, msg = self.db.register_user(login, password, full_name, 'student', email or None, self.group_combo.get(), int(self.course_combo.get()), 1, specialty)
+        if success:
+            messagebox.showinfo("Успех", msg)
+            self.mode_var.set("login")
+            self.switch_mode("login")
+        else:
+            messagebox.showerror("Ошибка", msg)
+
+    def login_user(self, login, password):
+        user, msg = self.db.authenticate(login, password)
         if user:
             self.destroy()
-            self.on_login_success(user)
+            MainWindow(self.db, user).mainloop()
         else:
-            messagebox.showerror("Ошибка", "Неверный логин или пароль")
-            self.password_entry.delete(0, "end")
+            messagebox.showerror("Ошибка", msg)
 
 
 class MainWindow(ctk.CTk):
-    """Основное окно приложения"""
-    
-    def __init__(self, user: Dict[str, Any]):
+    def __init__(self, db, user):
         super().__init__()
-        
+        self.db = db
         self.user = user
-        self.current_theme = "dark"
+        self.title(f"ИС ПолесГУ - {user['full_name']} ({user['role']})")
+        self.geometry("1200x800")
+        self.minsize(1000, 700)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
         
-        self.title(f"ИАС ПолесГУ - {user['full_name']} ({user['role']})")
-        self.geometry("1400x900")
+        sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
+        sidebar.grid(row=0, column=0, sticky="nsew")
+        sidebar.grid_rowconfigure(10, weight=1)
         
-        self.create_layout()
-        self.load_tab_data()
-    
-    def create_layout(self):
-        """Создание макета окна"""
-        # Верхняя панель
-        self.top_frame = ctk.CTkFrame(self, height=60, fg_color="#2b2b2b")
-        self.top_frame.pack(fill="x", side="top")
-        self.top_frame.pack_propagate(False)
+        ctk.CTkLabel(sidebar, text="ИС ПОЛЕСГУ", font=ctk.CTkFont(size=18, weight="bold"), text_color=COLORS['primary']).grid(row=0, column=0, pady=20)
         
-        # Логотип/заголовок
-        logo_label = ctk.CTkLabel(
-            self.top_frame,
-            text="🎓 ИАС ПолесГУ",
-            font=ctk.CTkFont(size=20, weight="bold")
-        )
-        logo_label.pack(side="left", padx=20, pady=10)
+        role_colors = {'admin': COLORS['admin_bg'], 'teacher': COLORS['teacher_bg'], 'student': COLORS['student_bg']}
+        user_info = ctk.CTkFrame(sidebar, fg_color=role_colors.get(user['role'], 'gray'))
+        user_info.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
+        ctk.CTkLabel(user_info, text=user['full_name'], font=ctk.CTkFont(size=12, weight="bold"), text_color="white").pack(pady=5)
+        ctk.CTkLabel(user_info, text=f"Роль: {user['role']}", font=ctk.CTkFont(size=11), text_color="white").pack(pady=2)
         
-        # Информация о пользователе
-        user_info = f"{self.user['full_name']} | Роль: {self.translate_role(self.user['role'])}"
-        user_label = ctk.CTkLabel(
-            self.top_frame,
-            text=user_info,
-            font=ctk.CTkFont(size=14)
-        )
-        user_label.pack(side="right", padx=20, pady=10)
+        self.tabs = {}
+        buttons = [("Главная", "home"), ("Студенты", "students")]
+        if user['role'] != 'student':
+            buttons += [("Журнал", "grades"), ("Аналитика", "analytics")]
+        if user['role'] == 'admin':
+            buttons += [("Пользователи", "users"), ("Логи", "logs")]
+        buttons += [("Настройки", "settings")]
         
-        # Основной контейнер с вкладками
-        self.tabview = ctk.CTkTabview(self)
-        self.tabview.pack(fill="both", expand=True, padx=10, pady=10)
+        for i, (text, key) in enumerate(buttons, start=2):
+            btn = ctk.CTkButton(sidebar, text=text, command=lambda k=key: self.show_tab(k), anchor="w", height=40)
+            btn.grid(row=i, column=0, padx=10, pady=5, sticky="ew")
+            self.tabs[key] = btn
         
-        # Создание вкладок в зависимости от роли
-        self.create_tabs()
-    
-    def translate_role(self, role: str) -> str:
-        """Перевод роли на русский"""
-        roles = {"admin": "Администратор", "teacher": "Преподаватель", "student": "Студент"}
-        return roles.get(role, role)
-    
-    def create_tabs(self):
-        """Создание вкладок"""
-        # Общие вкладки
-        self.tab_dashboard = self.tabview.add("📊 Главная")
-        self.tab_students = self.tabview.add("🎓 Студенты")
-        self.tab_grades = self.tabview.add("📝 Журнал")
-        self.tab_analytics = self.tabview.add("📈 Аналитика")
-        self.tab_settings = self.tabview.add("⚙️ Настройки")
+        self.main_area = ctk.CTkScrollableFrame(self, corner_radius=0)
+        self.main_area.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
         
-        # Вкладка пользователей только для админа
-        if self.user["role"] == "admin":
-            self.tab_users = self.tabview.add("👥 Пользователи")
-            self.setup_users_tab()
-        
-        # Вкладка логов только для админа
-        if self.user["role"] == "admin":
-            self.tab_logs = self.tabview.add("📋 Логи")
-            self.setup_logs_tab()
-        
-        # Настройка вкладок
-        self.setup_dashboard_tab()
-        self.setup_students_tab()
-        self.setup_grades_tab()
-        self.setup_analytics_tab()
-        self.setup_settings_tab()
-    
-    def load_tab_data(self):
-        """Загрузка данных во вкладки"""
-        self.refresh_dashboard()
-        self.refresh_students()
-        self.refresh_grades()
-        self.refresh_analytics()
-        if self.user["role"] == "admin":
-            self.refresh_users()
-            self.refresh_logs()
-    
-    # ==================== DASHBOARD ====================
-    
-    def setup_dashboard_tab(self):
-        """Настройка вкладки Dashboard"""
-        # KPI карточки
-        kpi_frame = ctk.CTkFrame(self.tab_dashboard, fg_color="transparent")
-        kpi_frame.pack(fill="x", padx=20, pady=20)
-        
-        self.kpi_labels = {}
-        kpi_configs = [
-            ("total_students", "Всего студентов", "#3498db"),
-            ("avg_grade", "Средний балл", "#2ecc71"),
-            ("success_rate", "Успеваемость %", "#f39c12"),
-            ("quality_rate", "Качество %", "#9b59b6")
+        ctk.CTkButton(sidebar, text="Выход", command=self.logout, fg_color=COLORS['danger'], hover_color="#C0392B").grid(row=11, column=0, padx=10, pady=20)
+        self.show_tab("home")
+
+    def show_tab(self, tab_name):
+        for widget in self.main_area.winfo_children(): widget.destroy()
+        if tab_name == "home": self.create_home_tab()
+        elif tab_name == "students": self.create_students_tab()
+        elif tab_name == "grades" and self.user['role'] != 'student': self.create_grades_tab()
+        elif tab_name == "analytics" and self.user['role'] != 'student': self.create_analytics_tab()
+        elif tab_name == "users" and self.user['role'] == 'admin': self.create_users_tab()
+        elif tab_name == "logs" and self.user['role'] == 'admin': self.create_logs_tab()
+        elif tab_name == "settings": self.create_settings_tab()
+
+    def create_home_tab(self):
+        ctk.CTkLabel(self.main_area, text="Панель управления", font=ctk.CTkFont(size=24, weight="bold")).pack(anchor="w", pady=(0,20))
+        stats = self.db.get_dashboard_stats()
+        cards_frame = ctk.CTkFrame(self.main_area, fg_color="transparent")
+        cards_frame.pack(fill="x", pady=10)
+        kpi_data = [
+            ("Студентов", stats.get('total_students', 0), "Общее количество", COLORS['primary']),
+            ("Средний балл", stats.get('faculty_average', 0), "Средняя оценка (2-10)", COLORS['secondary']),
+            ("Успеваемость", f"{stats.get('success_rate', 0)}%", "% студентов со средней > 3", COLORS['success']),
+            ("Качество", f"{stats.get('quality_rate', 0)}%", "% оценок 8-10", COLORS['accent']),
         ]
+        for i, (title, value, desc, color) in enumerate(kpi_data):
+            card = ctk.CTkFrame(cards_frame, corner_radius=10)
+            card.grid(row=0, column=i, padx=10, sticky="ew")
+            cards_frame.grid_columnconfigure(i, weight=1)
+            ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=14), text_color="gray").pack(pady=(15,5))
+            ctk.CTkLabel(card, text=str(value), font=ctk.CTkFont(size=28, weight="bold"), text_color=color).pack()
+            ctk.CTkLabel(card, text=desc, font=ctk.CTkFont(size=10), text_color="gray", wraplength=180).pack(pady=(5,15), padx=10)
         
-        for i, (key, title, color) in enumerate(kpi_configs):
-            card = ctk.CTkFrame(kpi_frame, fg_color=color, corner_radius=10)
-            card.grid(row=0, column=i, padx=10, pady=10, sticky="nsew")
-            
-            value_label = ctk.CTkLabel(
-                card,
-                text="-",
-                font=ctk.CTkFont(size=32, weight="bold"),
-                text_color="white"
-            )
-            value_label.pack(pady=(20, 5))
-            
-            title_label = ctk.CTkLabel(
-                card,
-                text=title,
-                font=ctk.CTkFont(size=14),
-                text_color="white"
-            )
-            title_label.pack(pady=(0, 20))
-            
-            kpi_frame.grid_columnconfigure(i, weight=1)
-            self.kpi_labels[key] = value_label
+        risk_frame = ctk.CTkFrame(self.main_area)
+        risk_frame.pack(fill="both", expand=True, pady=20)
+        ctk.CTkLabel(risk_frame, text=f"Группа риска ({stats.get('at_risk_count', 0)} чел.)", font=ctk.CTkFont(size=16, weight="bold"), text_color=COLORS['danger']).pack(anchor="w", padx=15, pady=10)
+        if stats.get('at_risk_students'):
+            columns = ("name", "group", "avg")
+            tree = ttk.Treeview(risk_frame, columns=columns, show="headings", height=8)
+            tree.heading("name", text="ФИО"); tree.heading("group", text="Группа"); tree.heading("avg", text="Балл")
+            tree.column("name", width=300); tree.column("group", width=100); tree.column("avg", width=80)
+            for s in stats['at_risk_students'][:10]:
+                tree.insert("", "end", values=(s['full_name'], s['group_name'], f"{s['avg_grade']:.2f}"))
+            tree.pack(fill="x", padx=15, pady=10)
         
-        # Блок группы риска
-        risk_frame = ctk.CTkFrame(self.tab_dashboard, fg_color="#2b2b2b")
-        risk_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        debt_frame = ctk.CTkFrame(self.main_area)
+        debt_frame.pack(fill="both", expand=True, pady=10)
+        ctk.CTkLabel(debt_frame, text=f"Должники ({stats.get('debtors_count', 0)} чел.)", font=ctk.CTkFont(size=16, weight="bold"), text_color=COLORS['warning']).pack(anchor="w", padx=15, pady=10)
+        if stats.get('debtors'):
+            columns = ("name", "group", "debts")
+            tree = ttk.Treeview(debt_frame, columns=columns, show="headings", height=6)
+            tree.heading("name", text="ФИО"); tree.heading("group", text="Группа"); tree.heading("debts", text="Долги")
+            tree.column("name", width=300); tree.column("group", width=100); tree.column("debts", width=80)
+            for d in stats['debtors'][:8]:
+                tree.insert("", "end", values=(d['full_name'], d['group_name'], d['debt_count']))
+            tree.pack(fill="x", padx=15, pady=10)
+
+    def create_students_tab(self):
+        ctk.CTkLabel(self.main_area, text="Студенты", font=ctk.CTkFont(size=24, weight="bold")).pack(anchor="w", pady=(0,15))
+        filter_frame = ctk.CTkFrame(self.main_area)
+        filter_frame.pack(fill="x", pady=10)
+        ctk.CTkLabel(filter_frame, text="Группа:").pack(side="left", padx=10)
+        groups = ["Все"] + self.db.get_all_groups()
+        group_var = tk.StringVar(value="Все")
+        group_combo = ttk.Combobox(filter_frame, textvariable=group_var, values=groups, width=15, state="readonly")
+        group_combo.pack(side="left", padx=5)
+        ctk.CTkLabel(filter_frame, text="Курс:").pack(side="left", padx=10)
+        course_var = tk.StringVar(value="0")
+        course_combo = ttk.Combobox(filter_frame, textvariable=course_var, values=["0","1","2","3","4","5"], width=5, state="readonly")
+        course_combo.pack(side="left", padx=5)
+        ctk.CTkLabel(filter_frame, text="Поиск:").pack(side="left", padx=10)
+        search_entry = ctk.CTkEntry(filter_frame, width=200, placeholder_text="ФИО")
+        search_entry.pack(side="left", padx=5)
         
-        risk_title = ctk.CTkLabel(
-            risk_frame,
-            text="⚠️ Группа риска (студенты с оценками ≤ 4)",
-            font=ctk.CTkFont(size=16, weight="bold")
-        )
-        risk_title.pack(pady=10)
+        students_frame = ctk.CTkFrame(self.main_area, fg_color="transparent")
+        students_frame.pack(fill="both", expand=True, pady=10)
         
-        # Таблица группы риска
-        columns = ("full_name", "group_name", "min_grade")
-        self.risk_tree = ttk.Treeview(risk_frame, columns=columns, show="headings", height=10)
+        def apply_filters():
+            for w in students_frame.winfo_children(): w.destroy()
+            course = int(course_var.get()) if course_var.get() != "0" else None
+            self.render_students_table(students_frame, group_var.get() if group_var.get() != "Все" else None, course, search_entry.get())
         
-        self.risk_tree.heading("full_name", text="ФИО")
-        self.risk_tree.heading("group_name", text="Группа")
-        self.risk_tree.heading("min_grade", text="Мин. оценка")
-        
-        self.risk_tree.column("full_name", width=300)
-        self.risk_tree.column("group_name", width=100)
-        self.risk_tree.column("min_grade", width=100)
-        
-        scrollbar = ttk.Scrollbar(risk_frame, orient="vertical", command=self.risk_tree.yview)
-        self.risk_tree.configure(yscrollcommand=scrollbar.set)
-        
-        self.risk_tree.pack(side="left", fill="both", expand=True, padx=10, pady=10)
-        scrollbar.pack(side="right", fill="y", pady=10)
-    
-    def refresh_dashboard(self):
-        """Обновление данных Dashboard"""
-        try:
-            stats = server.db.get_dashboard_stats()
-            
-            self.kpi_labels["total_students"].configure(text=str(stats["total_students"]))
-            self.kpi_labels["avg_grade"].configure(text=f"{stats['avg_grade']:.2f}")
-            self.kpi_labels["success_rate"].configure(text=f"{stats['success_rate']:.1f}%")
-            self.kpi_labels["quality_rate"].configure(text=f"{stats['quality_rate']:.1f}%")
-            
-            # Обновление таблицы группы риска
-            for item in self.risk_tree.get_children():
-                self.risk_tree.delete(item)
-            
-            risk_students = server.db.get_at_risk_students()
-            for student in risk_students:
-                grade_text = "Зачтено" if student["min_grade"] == 5 else str(student["min_grade"])
-                self.risk_tree.insert("", "end", values=(
-                    student["full_name"],
-                    student["group_name"],
-                    grade_text
-                ))
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Ошибка загрузки Dashboard: {e}")
-    
-    # ==================== СТУДЕНТЫ ====================
-    
-    def setup_students_tab(self):
-        """Настройка вкладки Студенты"""
-        # Панель фильтров
-        filter_frame = ctk.CTkFrame(self.tab_students, fg_color="transparent")
-        filter_frame.pack(fill="x", padx=20, pady=10)
-        
-        # Поиск по имени
-        search_label = ctk.CTkLabel(filter_frame, text="🔍 Поиск:")
-        search_label.pack(side="left", padx=(0, 5))
-        
-        self.student_search_entry = ctk.CTkEntry(
-            filter_frame,
-            width=250,
-            placeholder_text="Введите ФИО..."
-        )
-        self.student_search_entry.pack(side="left", padx=(0, 10))
-        self.student_search_entry.bind("<KeyRelease>", lambda e: self.refresh_students())
-        
-        # Фильтр по группе
-        group_label = ctk.CTkLabel(filter_frame, text="Группа:")
-        group_label.pack(side="left", padx=(20, 5))
-        
-        self.student_group_combo = ctk.CTkComboBox(
-            filter_frame,
-            width=150,
-            values=["Все"],
-            command=lambda _: self.refresh_students()
-        )
-        self.student_group_combo.pack(side="left", padx=(0, 10))
-        self.student_group_combo.set("Все")
-        
-        # Кнопка обновления
-        refresh_btn = ctk.CTkButton(
-            filter_frame,
-            text="🔄 Обновить",
-            width=100,
-            command=self.refresh_students
-        )
-        refresh_btn.pack(side="left")
-        
-        # Таблица студентов
-        table_frame = ctk.CTkFrame(self.tab_students, fg_color="#2b2b2b")
-        table_frame.pack(fill="both", expand=True, padx=20, pady=10)
-        
-        columns = ("full_name", "group_name", "course", "specialty", "avg_grade")
-        self.students_tree = ttk.Treeview(table_frame, columns=columns, show="headings")
-        
-        self.students_tree.heading("full_name", text="ФИО")
-        self.students_tree.heading("group_name", text="Группа")
-        self.students_tree.heading("course", text="Курс")
-        self.students_tree.heading("specialty", text="Специальность")
-        self.students_tree.heading("avg_grade", text="Средний балл")
-        
-        self.students_tree.column("full_name", width=250)
-        self.students_tree.column("group_name", width=80)
-        self.students_tree.column("course", width=60)
-        self.students_tree.column("specialty", width=200)
-        self.students_tree.column("avg_grade", width=100)
-        
-        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.students_tree.yview)
-        self.students_tree.configure(yscrollcommand=scrollbar.set)
-        
-        self.students_tree.pack(side="left", fill="both", expand=True, padx=10, pady=10)
-        scrollbar.pack(side="right", fill="y", pady=10)
-        
-        # Двойной клик для просмотра оценок
-        self.students_tree.bind("<Double-1>", self.show_student_grades)
-    
-    def refresh_students(self):
-        """Обновление списка студентов"""
-        try:
-            # Обновление фильтра групп
-            groups = server.db.get_groups()
-            current = self.student_group_combo.get()
-            self.student_group_combo.configure(values=["Все"] + groups)
-            if current not in ["Все"] + groups:
-                self.student_group_combo.set("Все")
-            
-            # Получение данных
-            group_filter = self.student_group_combo.get()
-            search_query = self.student_search_entry.get().strip()
-            
-            students = server.db.get_all_students(group_filter, search_query)
-            
-            # Очистка таблицы
-            for item in self.students_tree.get_children():
-                self.students_tree.delete(item)
-            
-            # Заполнение таблицы
-            for student in students:
-                avg = f"{student['avg_grade']:.2f}" if student['avg_grade'] > 0 else "-"
-                self.students_tree.insert("", "end", values=(
-                    student["full_name"],
-                    student["group_name"],
-                    student["course"],
-                    student["specialty"],
-                    avg
-                ))
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Ошибка загрузки студентов: {e}")
-    
-    def show_student_grades(self, event=None):
-        """Показать оценки студента в модальном окне"""
-        selection = self.students_tree.selection()
-        if not selection:
-            return
-        
-        item = self.students_tree.item(selection[0])
-        full_name = item["values"][0]
-        
-        # Найти ID студента
-        students = server.db.get_all_students()
-        student = next((s for s in students if s["full_name"] == full_name), None)
-        
-        if not student:
-            return
-        
-        # Модальное окно
-        dialog = ctk.CTkToplevel(self)
-        dialog.title(f"Оценки: {full_name}")
-        dialog.geometry("600x500")
-        dialog.transient(self)
-        dialog.grab_set()
-        
-        # Таблица оценок
-        columns = ("discipline", "value", "grade_type", "date")
-        tree = ttk.Treeview(dialog, columns=columns, show="headings")
-        
-        tree.heading("discipline", text="Дисциплина")
-        tree.heading("value", text="Оценка")
-        tree.heading("grade_type", text="Тип")
-        tree.heading("date", text="Дата")
-        
-        tree.column("discipline", width=250)
-        tree.column("value", width=80)
-        tree.column("grade_type", width=100)
-        tree.column("date", width=100)
-        
-        tree.pack(fill="both", expand=True, padx=10, pady=10)
-        
-        grades = server.db.get_student_grades(student["id"])
-        for grade in grades:
-            type_text = {"exam": "Экзамен", "lab": "Лаба", "practice": "Практика", "zachet": "Зачет"}.get(grade["grade_type"], grade["grade_type"])
-            value_text = "Зачтено" if grade["grade_type"] == "zachet" and grade["value"] == 5 else \
-                        "Не зачтено" if grade["grade_type"] == "zachet" and grade["value"] == 2 else str(grade["value"])
-            tree.insert("", "end", values=(grade["discipline"], value_text, type_text, grade["date"]))
-    
-    # ==================== ЖУРНАЛ ====================
-    
-    def setup_grades_tab(self):
-        """Настройка вкладки Журнал"""
-        # Панель фильтров
-        filter_frame = ctk.CTkFrame(self.tab_grades, fg_color="transparent")
-        filter_frame.pack(fill="x", padx=20, pady=10)
-        
-        # Выбор группы
-        group_label = ctk.CTkLabel(filter_frame, text="Группа:")
-        group_label.pack(side="left", padx=(0, 5))
-        
-        self.grade_group_combo = ctk.CTkComboBox(
-            filter_frame,
-            width=150,
-            values=[],
-            command=lambda _: self.refresh_grades()
-        )
-        self.grade_group_combo.pack(side="left", padx=(0, 15))
-        
-        # Выбор предмета
-        disc_label = ctk.CTkLabel(filter_frame, text="Предмет:")
-        disc_label.pack(side="left", padx=(0, 5))
-        
-        self.grade_disc_combo = ctk.CTkComboBox(
-            filter_frame,
-            width=250,
-            values=["Все предметы"],
-            command=lambda _: self.refresh_grades()
-        )
-        self.grade_disc_combo.pack(side="left", padx=(0, 15))
-        
-        # Поиск
-        search_label = ctk.CTkLabel(filter_frame, text="🔍 Поиск:")
-        search_label.pack(side="left", padx=(20, 5))
-        
-        self.grade_search_entry = ctk.CTkEntry(
-            filter_frame,
-            width=200,
-            placeholder_text="ФИО студента..."
-        )
-        self.grade_search_entry.pack(side="left", padx=(0, 10))
-        self.grade_search_entry.bind("<KeyRelease>", lambda e: self.refresh_grades())
-        
-        # Кнопка добавления оценки (для преподавателя и админа)
-        if self.user["role"] in ["admin", "teacher"]:
-            add_btn = ctk.CTkButton(
-                filter_frame,
-                text="+ Добавить оценку",
-                command=self.add_grade_dialog
-            )
-            add_btn.pack(side="left", padx=(10, 0))
-        
-        # Кнопка обновления
-        refresh_btn = ctk.CTkButton(
-            filter_frame,
-            text="🔄 Обновить",
-            command=self.refresh_grades
-        )
-        refresh_btn.pack(side="right")
-        
-        # Таблица оценок
-        table_frame = ctk.CTkFrame(self.tab_grades, fg_color="#2b2b2b")
-        table_frame.pack(fill="both", expand=True, padx=20, pady=10)
-        
-        columns = ("full_name", "discipline", "value", "grade_type", "date")
-        self.grades_tree = ttk.Treeview(table_frame, columns=columns, show="headings")
-        
-        self.grades_tree.heading("full_name", text="ФИО")
-        self.grades_tree.heading("discipline", text="Дисциплина")
-        self.grades_tree.heading("value", text="Оценка")
-        self.grades_tree.heading("grade_type", text="Тип работы")
-        self.grades_tree.heading("date", text="Дата")
-        
-        self.grades_tree.column("full_name", width=200)
-        self.grades_tree.column("discipline", width=200)
-        self.grades_tree.column("value", width=80)
-        self.grades_tree.column("grade_type", width=120)
-        self.grades_tree.column("date", width=100)
-        
-        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.grades_tree.yview)
-        self.grades_tree.configure(yscrollcommand=scrollbar.set)
-        
-        self.grades_tree.pack(side="left", fill="both", expand=True, padx=10, pady=10)
-        scrollbar.pack(side="right", fill="y", pady=10)
-        
-        # Контекстное меню для редактирования
-        self.grade_context_menu = tk.Menu(self, tearoff=0)
-        self.grade_context_menu.add_command(label="✏️ Редактировать", command=self.edit_selected_grade)
-        self.grade_context_menu.add_command(label="🗑️ Удалить", command=self.delete_selected_grade)
-        
-        self.grades_tree.bind("<Button-3>", self.show_grade_context_menu)
-        self.grades_tree.bind("<Double-1>", lambda e: self.edit_selected_grade())
-    
-    def refresh_grades(self):
-        """Обновление журнала оценок"""
-        try:
-            # Обновление списков
-            groups = server.db.get_groups()
-            disciplines = server.db.get_all_disciplines()
-            
-            current_group = self.grade_group_combo.get()
-            current_disc = self.grade_disc_combo.get()
-            
-            self.grade_group_combo.configure(values=groups if groups else [])
-            disc_values = ["Все предметы"] + [d["name"] for d in disciplines]
-            self.grade_disc_combo.configure(values=disc_values)
-            
-            if not current_group and groups:
-                self.grade_group_combo.set(groups[0])
-            if current_disc not in disc_values:
-                self.grade_disc_combo.set("Все предметы")
-            
-            # Получение данных
-            group_name = self.grade_group_combo.get()
-            search_query = self.grade_search_entry.get().strip()
-            
-            disc_id = None
-            if self.grade_disc_combo.get() != "Все предметы":
-                disc = next((d for d in disciplines if d["name"] == self.grade_disc_combo.get()), None)
-                if disc:
-                    disc_id = disc["id"]
-            
-            if not group_name:
-                return
-            
-            grades = server.db.get_grades_for_group(group_name, disc_id, search_query)
-            
-            # Очистка таблицы
-            for item in self.grades_tree.get_children():
-                self.grades_tree.delete(item)
-            
-            # Заполнение
-            for grade in grades:
-                type_text = {"exam": "Экзамен", "lab": "Лаба", "practice": "Практика", "zachet": "Зачет"}.get(grade["grade_type"], grade["grade_type"])
-                if grade["grade_type"] == "zachet":
-                    value_text = "Зачтено" if grade["value"] == 5 else "Не зачтено"
-                else:
-                    value_text = str(grade["value"])
-                
-                self.grades_tree.insert("", "end", values=(
-                    grade["full_name"],
-                    grade["discipline"],
-                    value_text,
-                    type_text,
-                    grade["date"]
-                ), tags=(grade["id"],))
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Ошибка загрузки журнала: {e}")
-    
-    def show_grade_context_menu(self, event):
-        """Показать контекстное меню"""
-        if self.user["role"] not in ["admin", "teacher"]:
-            return
-        
-        self.grades_tree.selection_set(self.grades_tree.identify_row(event.y))
-        if self.grades_tree.selection():
-            self.grade_context_menu.post(event.x_root, event.y_root)
-    
-    def get_selected_grade_id(self) -> Optional[int]:
-        """Получить ID выбранной оценки"""
-        selection = self.grades_tree.selection()
-        if not selection:
-            return None
-        tags = self.grades_tree.item(selection[0])["tags"]
-        return int(tags[0]) if tags else None
-    
-    def edit_selected_grade(self):
-        """Редактирование выбранной оценки"""
-        grade_id = self.get_selected_grade_id()
-        if not grade_id:
-            messagebox.showwarning("Предупреждение", "Выберите оценку для редактирования")
-            return
-        
-        # Получить текущие данные из таблицы
-        selection = self.grades_tree.selection()
-        item = self.grades_tree.item(selection[0])
-        current_value = item["values"][2]
-        current_type = item["values"][3]
-        
-        # Преобразование значения
-        if current_type == "Зачет":
-            current_value_num = 5 if current_value == "Зачтено" else 2
-        else:
-            current_value_num = int(current_value)
-        
-        current_type_code = {"Экзамен": "exam", "Лаба": "lab", "Практика": "practice", "Зачет": "zachet"}.get(current_type, "exam")
-        
-        # Диалог редактирования
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Редактирование оценки")
-        dialog.geometry("400x300")
-        dialog.transient(self)
-        dialog.grab_set()
-        
-        frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        frame.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        # Оценка
-        ctk.CTkLabel(frame, text="Оценка:").pack(anchor="w", pady=(0, 5))
-        value_entry = ctk.CTkEntry(frame, height=40)
-        value_entry.pack(fill="x", pady=(0, 15))
-        value_entry.insert(0, str(current_value_num))
-        
-        hint_label = ctk.CTkLabel(
-            frame,
-            text="Для зачета: 5 = Зачтено, 2 = Не зачтено",
-            font=ctk.CTkFont(size=11),
-            text_color="gray"
-        )
-        hint_label.pack(anchor="w", pady=(0, 15))
-        
-        # Тип работы
-        ctk.CTkLabel(frame, text="Тип работы:").pack(anchor="w", pady=(0, 5))
-        type_combo = ctk.CTkComboBox(frame, values=["exam", "lab", "practice", "zachet"])
-        type_combo.pack(fill="x", pady=(0, 20))
-        type_combo.set(current_type_code)
-        
+        group_combo.bind("<<ComboboxSelected>>", lambda e: apply_filters())
+        course_combo.bind("<<ComboboxSelected>>", lambda e: apply_filters())
+        search_entry.bind("<KeyRelease>", lambda e: apply_filters())
+        apply_filters()
+
+    def render_students_table(self, parent, group=None, course=None, search=None):
+        students = self.db.get_all_students(group, course, search)
+        columns = ("fio", "group", "course", "avg", "status")
+        tree = ttk.Treeview(parent, columns=columns, show="headings", height=20)
+        tree.heading("fio", text="ФИО"); tree.heading("group", text="Группа"); tree.heading("course", text="Курс"); tree.heading("avg", text="Балл"); tree.heading("status", text="Статус")
+        tree.column("fio", width=250); tree.column("group", width=80); tree.column("course", width=50); tree.column("avg", width=70); tree.column("status", width=100)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        for s in students:
+            status = "Отличник" if s['average_grade'] >= 9 else "Хорошист" if s['average_grade'] >= 7 else "Удовл." if s['average_grade'] >= 4 else "Должник"
+            color = COLORS['success'] if s['average_grade'] >= 8 else COLORS['info'] if s['average_grade'] >= 6 else COLORS['warning'] if s['average_grade'] >= 4 else COLORS['danger']
+            tree.insert("", "end", values=(s['full_name'], s['group_name'], s['course'], f"{s['average_grade']:.2f}", status), tags=(color,))
+            tree.tag_configure(color, foreground=color)
+        def on_double_click(event):
+            sel = tree.selection()
+            if sel:
+                student_id = students[tree.index(sel[0])]['id']
+                self.show_student_details(student_id)
+        tree.bind("<Double-1>", on_double_click)
+        tree.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+    def show_student_details(self, student_id):
+        details = self.db.get_student_details(student_id)
+        if not details: return
+        win = ctk.CTkToplevel(self)
+        win.title(f"Студент: {details['full_name']}")
+        win.geometry("700x600")
+        scroll = ctk.CTkScrollableFrame(win)
+        scroll.pack(fill="both", expand=True, padx=20, pady=20)
+        ctk.CTkLabel(scroll, text=details['full_name'], font=ctk.CTkFont(size=20, weight="bold")).pack(anchor="w")
+        ctk.CTkLabel(scroll, text=f"Группа: {details['group_name']}, Курс: {details['course']}", font=ctk.CTkFont(size=14)).pack(anchor="w", pady=5)
+        ctk.CTkLabel(scroll, text=f"Средний балл: {details['average_grade']:.2f}", font=ctk.CTkFont(size=16, weight="bold"), text_color=COLORS['primary']).pack(anchor="w", pady=10)
+        stats_frame = ctk.CTkFrame(scroll)
+        stats_frame.pack(fill="x", pady=10)
+        stats = [("Отлично", details['excellent_count'], COLORS['success']), ("Хорошо", details['good_count'], COLORS['info']), ("Удовл.", details['satisfactory_count'], COLORS['warning']), ("Неуд.", details['poor_count'], COLORS['danger'])]
+        for i, (label, count, color) in enumerate(stats):
+            ctk.CTkLabel(stats_frame, text=f"{label}: {count}", font=ctk.CTkFont(size=14), text_color=color).grid(row=0, column=i, padx=15, pady=10)
+        if details['passed_subjects']:
+            ctk.CTkLabel(scroll, text="Сданные предметы:", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", pady=(15,5))
+            for subj in details['passed_subjects'][:10]:
+                ctk.CTkLabel(scroll, text=f"• {subj['name']} (ср: {subj['avg_value']:.1f})", font=ctk.CTkFont(size=12)).pack(anchor="w", padx=20)
+        if details['debt_subjects']:
+            ctk.CTkLabel(scroll, text="ЗАДОЛЖЕННОСТИ:", font=ctk.CTkFont(size=16, weight="bold"), text_color=COLORS['danger']).pack(anchor="w", pady=(15,5))
+            for subj in details['debt_subjects']:
+                ctk.CTkLabel(scroll, text=f"⚠ {subj['name']} (мин: {subj['min_value']})", font=ctk.CTkFont(size=12), text_color=COLORS['danger']).pack(anchor="w", padx=20)
+        comments_frame = ctk.CTkFrame(scroll)
+        comments_frame.pack(fill="x", pady=15)
+        ctk.CTkLabel(comments_frame, text="Комментарии:", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w", pady=5)
+        for comment in details.get('comments', []):
+            cmt_frame = ctk.CTkFrame(comments_frame, fg_color="#F5F5F5")
+            cmt_frame.pack(fill="x", pady=5, padx=5)
+            ctk.CTkLabel(cmt_frame, text=comment['comment_text'], wraplength=600, justify="left").pack(anchor="w", padx=10, pady=5)
+            ctk.CTkLabel(cmt_frame, text=f"— {comment['author_name']}, {comment['created_at'][:10]}", font=ctk.CTkFont(size=10), text_color="gray").pack(anchor="e", padx=10, pady=(0,5))
+        if self.user['role'] != 'student':
+            ctk.CTkLabel(scroll, text="Добавить комментарий:", font=ctk.CTkFont(size=14)).pack(anchor="w", pady=(15,5))
+            comment_entry = ctk.CTkEntry(scroll, width=500, placeholder_text="Текст")
+            comment_entry.pack(anchor="w", padx=20)
+            def add_comment():
+                text = comment_entry.get().strip()
+                if text:
+                    self.db.add_student_comment(student_id, self.user['id'], text, details['has_debts'])
+                    messagebox.showinfo("Успех", "Комментарий добавлен")
+                    win.destroy()
+                    self.show_student_details(student_id)
+            ctk.CTkButton(scroll, text="Добавить", command=add_comment).pack(anchor="w", padx=20, pady=10)
+
+    def create_grades_tab(self):
+        ctk.CTkLabel(self.main_area, text="Журнал оценок", font=ctk.CTkFont(size=24, weight="bold")).pack(anchor="w", pady=(0,15))
+        filter_frame = ctk.CTkFrame(self.main_area)
+        filter_frame.pack(fill="x", pady=10)
+        ctk.CTkLabel(filter_frame, text="Группа:").pack(side="left", padx=10)
+        groups = ["Все"] + self.db.get_all_groups()
+        group_var = tk.StringVar(value="Все")
+        group_combo = ttk.Combobox(filter_frame, textvariable=group_var, values=groups, width=15, state="readonly")
+        group_combo.pack(side="left", padx=5)
+        ctk.CTkLabel(filter_frame, text="Предмет:").pack(side="left", padx=10)
+        disciplines = [(None, "Все")] + [(d['id'], d['name']) for d in self.db.get_all_disciplines()]
+        disc_var = tk.StringVar(value="Все")
+        disc_combo = ttk.Combobox(filter_frame, textvariable=disc_var, values=[v for k,v in disciplines], width=25, state="readonly")
+        disc_combo.pack(side="left", padx=5)
+        grades_frame = ctk.CTkFrame(self.main_area, fg_color="transparent")
+        grades_frame.pack(fill="both", expand=True, pady=10)
+        def refresh():
+            for w in grades_frame.winfo_children(): w.destroy()
+            g_filter = group_var.get() if group_var.get() != "Все" else None
+            d_filter = next((k for k,v in disciplines if v==disc_var.get()), None)
+            self.render_grades_table(grades_frame, g_filter, d_filter)
+        group_combo.bind("<<ComboboxSelected>>", lambda e: refresh())
+        disc_combo.bind("<<ComboboxSelected>>", lambda e: refresh())
+        refresh()
+
+    def render_grades_table(self, parent, group=None, discipline=None):
+        grades = self.db.get_grades(group, discipline)
+        columns = ("student", "group", "discipline", "value", "type", "date")
+        tree = ttk.Treeview(parent, columns=columns, show="headings", height=20)
+        tree.heading("student", text="Студент"); tree.heading("group", text="Группа"); tree.heading("discipline", text="Предмет"); tree.heading("value", text="Оценка"); tree.heading("type", text="Тип"); tree.heading("date", text="Дата")
+        tree.column("student", width=200); tree.column("group", width=70); tree.column("discipline", width=180); tree.column("value", width=60); tree.column("type", width=80); tree.column("date", width=90)
+        for g in grades:
+            color = COLORS['success'] if g['value'] >= 8 else COLORS['info'] if g['value'] >= 6 else COLORS['warning'] if g['value'] >= 4 else COLORS['danger']
+            tree.insert("", "end", values=(g['student_name'], g['group_name'], g['discipline_name'], g['value'], g['grade_type'], g['date'][:10]), tags=(color,))
+            tree.tag_configure(color, foreground=color)
+        def on_double_click(event):
+            if self.user['role'] == 'student': return
+            sel = tree.selection()
+            if sel:
+                grade = grades[tree.index(sel[0])]
+                self.edit_grade(grade)
+        tree.bind("<Double-1>", on_double_click)
+        tree.pack(fill="both", expand=True)
+
+    def edit_grade(self, grade):
+        win = ctk.CTkToplevel(self)
+        win.title("Редактирование оценки")
+        win.geometry("400x350")
+        ctk.CTkLabel(win, text=f"Студент: {grade['student_name']}", font=ctk.CTkFont(size=14)).pack(pady=10)
+        ctk.CTkLabel(win, text=f"Предмет: {grade['discipline_name']}", font=ctk.CTkFont(size=14)).pack(pady=5)
+        ctk.CTkLabel(win, text="Оценка (2-10):").pack(pady=5)
+        value_entry = ctk.CTkEntry(win, width=200)
+        value_entry.insert(0, str(grade['value']))
+        value_entry.pack(pady=5)
+        ctk.CTkLabel(win, text="Тип работы:").pack(pady=5)
+        type_var = tk.StringVar(value=grade['grade_type'])
+        type_combo = ttk.Combobox(win, textvariable=type_var, values=["exam","lab","practice","zachet","coursework"], state="readonly", width=20)
+        type_combo.pack(pady=5)
+        ctk.CTkLabel(win, text="Комментарий:").pack(pady=5)
+        comment_entry = ctk.CTkEntry(win, width=300)
+        comment_entry.insert(0, grade['comment'] or "")
+        comment_entry.pack(pady=5)
         def save():
             try:
-                new_value = int(value_entry.get())
-                if new_value < 2 or new_value > 10:
-                    raise ValueError("Оценка должна быть от 2 до 10")
-                
-                new_type = type_combo.get()
-                
-                if server.db.update_grade(grade_id, new_value, new_type, self.user["id"]):
-                    messagebox.showinfo("Успех", "Оценка обновлена")
-                    dialog.destroy()
-                    self.refresh_grades()
+                new_val = int(value_entry.get())
+                if 2 <= new_val <= 10:
+                    ok, msg = self.db.update_grade(grade['id'], new_val, type_var.get(), comment_entry.get(), self.user['id'])
+                    if ok:
+                        messagebox.showinfo("Успех", msg)
+                        win.destroy()
+                    else:
+                        messagebox.showerror("Ошибка", msg)
                 else:
-                    messagebox.showerror("Ошибка", "Не удалось обновить оценку")
-            except ValueError as e:
-                messagebox.showerror("Ошибка", f"Неверное значение: {e}")
-        
-        ctk.CTkButton(frame, text="Сохранить", command=save).pack(fill="x")
-    
-    def delete_selected_grade(self):
-        """Удаление выбранной оценки"""
-        grade_id = self.get_selected_grade_id()
-        if not grade_id:
-            return
-        
-        if messagebox.askyesno("Подтверждение", "Удалить эту оценку?"):
-            if server.db.delete_grade(grade_id, self.user["id"]):
-                messagebox.showinfo("Успех", "Оценка удалена")
-                self.refresh_grades()
-            else:
-                messagebox.showerror("Ошибка", "Не удалось удалить оценку")
-    
-    def add_grade_dialog(self):
-        """Диалог добавления оценки"""
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Добавить оценку")
-        dialog.geometry("500x400")
-        dialog.transient(self)
-        dialog.grab_set()
-        
-        frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        frame.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        # Выбор студента
-        ctk.CTkLabel(frame, text="Студент:").pack(anchor="w", pady=(0, 5))
-        
-        group = self.grade_group_combo.get()
-        students = server.db.get_all_students(group)
-        student_values = [f"{s['full_name']} ({s['group_name']})" for s in students]
-        
-        student_combo = ctk.CTkComboBox(frame, values=student_values)
-        student_combo.pack(fill="x", pady=(0, 15))
-        if student_values:
-            student_combo.set(student_values[0])
-        
-        # Выбор предмета
-        ctk.CTkLabel(frame, text="Предмет:").pack(anchor="w", pady=(0, 5))
-        disciplines = server.db.get_all_disciplines()
-        disc_values = [d["name"] for d in disciplines]
-        
-        disc_combo = ctk.CTkComboBox(frame, values=disc_values)
-        disc_combo.pack(fill="x", pady=(0, 15))
-        if disc_values:
-            disc_combo.set(disc_values[0])
-        
-        # Оценка
-        ctk.CTkLabel(frame, text="Оценка:").pack(anchor="w", pady=(0, 5))
-        value_entry = ctk.CTkEntry(frame, height=40)
-        value_entry.pack(fill="x", pady=(0, 5))
-        value_entry.insert(0, "5")
-        
-        ctk.CTkLabel(
-            frame,
-            text="Для зачета: 5 = Зачтено, 2 = Не зачтено",
-            font=ctk.CTkFont(size=11),
-            text_color="gray"
-        ).pack(anchor="w", pady=(0, 15))
-        
-        # Тип работы
-        ctk.CTkLabel(frame, text="Тип работы:").pack(anchor="w", pady=(0, 5))
-        type_combo = ctk.CTkComboBox(frame, values=["exam", "lab", "practice", "zachet"])
-        type_combo.pack(fill="x", pady=(0, 15))
-        type_combo.set("lab")
-        
-        # Дата
-        ctk.CTkLabel(frame, text="Дата (ГГГГ-ММ-ДД):").pack(anchor="w", pady=(0, 5))
-        from datetime import datetime
-        date_entry = ctk.CTkEntry(frame, height=40)
-        date_entry.pack(fill="x", pady=(0, 20))
-        date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
-        
-        def save():
-            try:
-                student_str = student_combo.get()
-                student = next((s for s in students if f"{s['full_name']} ({s['group_name']})" == student_str), None)
-                if not student:
-                    raise ValueError("Студент не найден")
-                
-                disc_name = disc_combo.get()
-                discipline = next((d for d in disciplines if d["name"] == disc_name), None)
-                if not discipline:
-                    raise ValueError("Предмет не найден")
-                
-                value = int(value_entry.get())
-                if value < 2 or value > 10:
-                    raise ValueError("Оценка должна быть от 2 до 10")
-                
-                grade_type = type_combo.get()
-                date = date_entry.get()
-                
-                server.db.add_grade(student["id"], discipline["id"], value, grade_type, date, self.user["id"])
-                messagebox.showinfo("Успех", "Оценка добавлена")
-                dialog.destroy()
-                self.refresh_grades()
-            except ValueError as e:
-                messagebox.showerror("Ошибка", f"Неверные данные: {e}")
-            except Exception as e:
-                messagebox.showerror("Ошибка", str(e))
-        
-        ctk.CTkButton(frame, text="Добавить", command=save).pack(fill="x")
-    
-    # ==================== АНАЛИТИКА ====================
-    
-    def setup_analytics_tab(self):
-        """Настройка вкладки Аналитика"""
-        # Заголовок
-        title_label = ctk.CTkLabel(
-            self.tab_analytics,
-            text="📊 Средний балл по группам",
-            font=ctk.CTkFont(size=18, weight="bold")
-        )
-        title_label.pack(pady=20)
-        
-        # Контейнер для графика
-        self.chart_frame = ctk.CTkFrame(self.tab_analytics, fg_color="#2b2b2b")
-        self.chart_frame.pack(fill="both", expand=True, padx=20, pady=10)
-        
-        # Кнопка обновления
-        refresh_btn = ctk.CTkButton(
-            self.tab_analytics,
-            text="🔄 Обновить график",
-            command=self.refresh_analytics
-        )
-        refresh_btn.pack(pady=10)
-    
-    def refresh_analytics(self):
-        """Обновление аналитического графика"""
-        try:
-            # Очистка предыдущего графика
-            for widget in self.chart_frame.winfo_children():
-                widget.destroy()
-            
-            data = server.db.get_avg_by_group()
-            
-            if not data:
-                ctk.CTkLabel(
-                    self.chart_frame,
-                    text="Нет данных для отображения",
-                    font=ctk.CTkFont(size=16)
-                ).pack(pady=50)
-                return
-            
-            groups = [item["group_name"] for item in data]
-            averages = [item["avg_grade"] for item in data]
-            
-            # Создание графика
-            fig = Figure(figsize=(10, 6), facecolor="#2b2b2b")
+                    messagebox.showerror("Ошибка", "Оценка должна быть 2-10")
+            except ValueError:
+                messagebox.showerror("Ошибка", "Введите число")
+        ctk.CTkButton(win, text="Сохранить", command=save).pack(pady=20)
+
+    def create_analytics_tab(self):
+        ctk.CTkLabel(self.main_area, text="Аналитика успеваемости", font=ctk.CTkFont(size=24, weight="bold")).pack(anchor="w", pady=(0,15))
+        scroll = ctk.CTkScrollableFrame(self.main_area)
+        scroll.pack(fill="both", expand=True)
+        self.create_bar_chart(scroll, "Средний балл по группам", self.db.get_group_averages(), "group_name", "avg_grade", "#2E86AB")
+        self.create_bar_chart(scroll, "Средний балл по курсам", self.db.get_course_averages(), "course", "avg_grade", "#56C596")
+        dist = self.db.get_grade_distribution()
+        if dist:
+            fig = Figure(figsize=(10, 5), dpi=100)
             ax = fig.add_subplot(111)
-            ax.set_facecolor("#2b2b2b")
-            
-            # Цвета столбцов
-            colors = ["#3498db" if avg >= 7 else "#f39c12" if avg >= 5 else "#e74c3c" for avg in averages]
-            
-            bars = ax.bar(range(len(groups)), averages, color=colors)
-            
-            # Настройка осей
-            ax.set_xticks(range(len(groups)))
-            ax.set_xticklabels(groups, rotation=45, ha="right", color="white")
-            ax.set_yticks(range(0, 11, 2))
-            ax.set_ylabel("Средний балл", color="white", fontsize=12)
-            ax.set_xlabel("Группа", color="white", fontsize=12)
-            ax.set_title("Сравнение успеваемости по группам", color="white", fontsize=14, pad=20)
-            ax.set_ylim(0, 10)
-            
-            # Подписи значений
-            for i, v in enumerate(averages):
-                ax.text(i, v + 0.2, f"{v:.2f}", ha="center", va="bottom", color="white", fontsize=9)
-            
-            # Сетка
-            ax.grid(axis="y", alpha=0.3, color="gray")
-            
-            # Вставка в GUI
-            canvas = FigureCanvasTkAgg(fig, master=self.chart_frame)
+            grades_labels = ['2','3','4','5','6','7','8','9','10']
+            values = [dist[0].get(str(g), 0) for g in range(2, 11)]
+            colors = [COLORS['danger'], COLORS['danger'], COLORS['warning'], COLORS['warning'], COLORS['info'], COLORS['info'], COLORS['success'], COLORS['success'], COLORS['success']]
+            ax.bar(grades_labels, values, color=colors)
+            ax.set_title("Распределение оценок")
+            ax.set_xlabel("Оценка")
+            ax.set_ylabel("Количество")
+            canvas = FigureCanvasTkAgg(fig, master=scroll)
             canvas.draw()
-            canvas.get_tk_widget().pack(fill="both", expand=True)
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Ошибка построения графика: {e}")
-    
-    # ==================== ПОЛЬЗОВАТЕЛИ (Admin) ====================
-    
-    def setup_users_tab(self):
-        """Настройка вкладки Пользователи"""
-        # Панель управления
-        control_frame = ctk.CTkFrame(self.tab_users, fg_color="transparent")
-        control_frame.pack(fill="x", padx=20, pady=10)
-        
-        # Фильтр по роли
-        role_label = ctk.CTkLabel(control_frame, text="Фильтр по роли:")
-        role_label.pack(side="left", padx=(0, 5))
-        
-        self.user_role_combo = ctk.CTkComboBox(
-            control_frame,
-            width=150,
-            values=["Все", "admin", "teacher", "student"],
-            command=lambda _: self.refresh_users()
-        )
-        self.user_role_combo.pack(side="left", padx=(0, 15))
-        self.user_role_combo.set("Все")
-        
-        # Поиск
-        search_label = ctk.CTkLabel(control_frame, text="🔍 Поиск:")
-        search_label.pack(side="left", padx=(20, 5))
-        
-        self.user_search_entry = ctk.CTkEntry(
-            control_frame,
-            width=200,
-            placeholder_text="ФИО или логин..."
-        )
-        self.user_search_entry.pack(side="left", padx=(0, 10))
-        self.user_search_entry.bind("<KeyRelease>", lambda e: self.refresh_users())
-        
-        # Кнопка добавления пользователя
-        add_btn = ctk.CTkButton(
-            control_frame,
-            text="+ Добавить пользователя",
-            command=self.add_user_dialog
-        )
-        add_btn.pack(side="left", padx=(10, 0))
-        
-        # Кнопка обновления
-        refresh_btn = ctk.CTkButton(
-            control_frame,
-            text="🔄 Обновить",
-            command=self.refresh_users
-        )
-        refresh_btn.pack(side="right")
-        
-        # Таблица пользователей
-        table_frame = ctk.CTkFrame(self.tab_users, fg_color="#2b2b2b")
-        table_frame.pack(fill="both", expand=True, padx=20, pady=10)
-        
-        columns = ("login", "full_name", "role", "group_name")
-        self.users_tree = ttk.Treeview(table_frame, columns=columns, show="headings")
-        
-        self.users_tree.heading("login", text="Логин")
-        self.users_tree.heading("full_name", text="ФИО")
-        self.users_tree.heading("role", text="Роль")
-        self.users_tree.heading("group_name", text="Группа")
-        
-        self.users_tree.column("login", width=150)
-        self.users_tree.column("full_name", width=250)
-        self.users_tree.column("role", width=100)
-        self.users_tree.column("group_name", width=100)
-        
-        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.users_tree.yview)
-        self.users_tree.configure(yscrollcommand=scrollbar.set)
-        
-        self.users_tree.pack(side="left", fill="both", expand=True, padx=10, pady=10)
-        scrollbar.pack(side="right", fill="y", pady=10)
-        
-        # Контекстное меню
-        self.user_context_menu = tk.Menu(self, tearoff=0)
-        self.user_context_menu.add_command(label="📈 Назначить преподавателем", command=self.promote_to_teacher)
-        self.user_context_menu.add_command(label="🗑️ Удалить", command=self.delete_user)
-        
-        self.users_tree.bind("<Button-3>", self.show_user_context_menu)
-    
-    def refresh_users(self):
-        """Обновление списка пользователей"""
-        try:
-            role_filter = self.user_role_combo.get()
-            search_query = self.user_search_entry.get().strip()
-            
-            if role_filter == "Все":
-                role_filter = None
-            
-            users = server.db.get_all_users(role_filter)
-            
-            # Фильтрация по поиску
-            if search_query:
-                users = [u for u in users if search_query.lower() in u["full_name"].lower() or search_query.lower() in u["login"].lower()]
-            
-            # Очистка таблицы
-            for item in self.users_tree.get_children():
-                self.users_tree.delete(item)
-            
-            # Заполнение
-            role_names = {"admin": "Админ", "teacher": "Преподаватель", "student": "Студент"}
-            for user in users:
-                self.users_tree.insert("", "end", values=(
-                    user["login"],
-                    user["full_name"],
-                    role_names.get(user["role"], user["role"]),
-                    user.get("group_name", "-") or "-"
-                ), tags=(user["id"], user["role"]))
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Ошибка загрузки пользователей: {e}")
-    
-    def show_user_context_menu(self, event):
-        """Показать контекстное меню пользователя"""
-        self.users_tree.selection_set(self.users_tree.identify_row(event.y))
-        if self.users_tree.selection():
-            tags = self.users_tree.item(self.users_tree.selection()[0])["tags"]
-            if len(tags) > 1 and tags[1] == "student":
-                self.user_context_menu.post(event.x_root, event.y_root)
-            else:
-                # Показать только удаление для не-студентов
-                delete_menu = tk.Menu(self, tearoff=0)
-                delete_menu.add_command(label="🗑️ Удалить", command=self.delete_user)
-                delete_menu.post(event.x_root, event.y_root)
-    
-    def get_selected_user_id(self) -> Optional[int]:
-        """Получить ID выбранного пользователя"""
-        selection = self.users_tree.selection()
-        if not selection:
-            return None
-        tags = self.users_tree.item(selection[0])["tags"]
-        return int(tags[0]) if tags else None
-    
-    def promote_to_teacher(self):
-        """Повысить студента до преподавателя"""
-        user_id = self.get_selected_user_id()
-        if not user_id:
-            return
-        
-        if messagebox.askyesno("Подтверждение", "Повысить этого студента до преподавателя?"):
-            server.db.update_user_role(user_id, "teacher", self.user["id"])
-            messagebox.showinfo("Успех", "Пользователь повышен до преподавателя")
-            self.refresh_users()
-    
-    def delete_user(self):
-        """Удалить пользователя"""
-        user_id = self.get_selected_user_id()
-        if not user_id:
-            return
-        
-        if user_id == self.user["id"]:
-            messagebox.showerror("Ошибка", "Нельзя удалить самого себя")
-            return
-        
-        if messagebox.askyesno("Подтверждение", "Удалить этого пользователя?\nЭто действие необратимо!"):
-            server.db.delete_user(user_id, self.user["id"])
-            messagebox.showinfo("Успех", "Пользователь удален")
-            self.refresh_users()
-    
-    def add_user_dialog(self):
-        """Диалог добавления пользователя"""
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Добавить пользователя")
-        dialog.geometry("500x450")
-        dialog.transient(self)
-        dialog.grab_set()
-        
-        frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        frame.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        # Логин
-        ctk.CTkLabel(frame, text="Логин:").pack(anchor="w", pady=(0, 5))
-        login_entry = ctk.CTkEntry(frame, height=40)
-        login_entry.pack(fill="x", pady=(0, 15))
-        
-        # Пароль
-        ctk.CTkLabel(frame, text="Пароль:").pack(anchor="w", pady=(0, 5))
-        password_entry = ctk.CTkEntry(frame, height=40, show="*")
-        password_entry.pack(fill="x", pady=(0, 15))
-        
-        # ФИО
-        ctk.CTkLabel(frame, text="ФИО:").pack(anchor="w", pady=(0, 5))
-        fullname_entry = ctk.CTkEntry(frame, height=40)
-        fullname_entry.pack(fill="x", pady=(0, 15))
-        
-        # Роль
-        ctk.CTkLabel(frame, text="Роль:").pack(anchor="w", pady=(0, 5))
-        role_combo = ctk.CTkComboBox(frame, values=["student", "teacher", "admin"])
-        role_combo.pack(fill="x", pady=(0, 15))
-        role_combo.set("student")
-        
-        # Поля для студента
-        student_fields_frame = ctk.CTkFrame(frame)
-        student_fields_frame.pack(fill="x", pady=(0, 15))
-        
-        ctk.CTkLabel(student_fields_frame, text="Группа:").grid(row=0, column=0, padx=(0, 5), pady=5, sticky="w")
-        group_entry = ctk.CTkEntry(student_fields_frame, width=100)
-        group_entry.grid(row=0, column=1, padx=(0, 15), pady=5)
-        group_entry.insert(0, "ИВТ-11")
-        
-        ctk.CTkLabel(student_fields_frame, text="Курс:").grid(row=0, column=2, padx=(0, 5), pady=5, sticky="w")
-        course_entry = ctk.CTkEntry(student_fields_frame, width=60)
-        course_entry.grid(row=0, column=3, padx=(0, 15), pady=5)
-        course_entry.insert(0, "1")
-        
-        ctk.CTkLabel(student_fields_frame, text="Специальность:").grid(row=1, column=0, padx=(0, 5), pady=5, sticky="w")
-        specialty_entry = ctk.CTkEntry(student_fields_frame, width=300)
-        specialty_entry.grid(row=1, column=1, columnspan=3, padx=(0, 15), pady=5, sticky="w")
-        specialty_entry.insert(0, "Информатика и вычислительная техника")
-        
-        def toggle_student_fields(*args):
-            if role_combo.get() == "student":
-                student_fields_frame.pack(fill="x", pady=(0, 15))
-            else:
-                student_fields_frame.pack_forget()
-        
-        role_combo.configure(command=toggle_student_fields)
-        
-        def save():
-            try:
-                login = login_entry.get().strip()
-                password = password_entry.get().strip()
-                full_name = fullname_entry.get().strip()
-                role = role_combo.get()
-                
-                if not login or not password or not full_name:
-                    raise ValueError("Заполните все обязательные поля")
-                
-                group_name = None
-                course = None
-                specialty = None
-                
-                if role == "student":
-                    group_name = group_entry.get().strip()
-                    course = int(course_entry.get())
-                    specialty = specialty_entry.get().strip()
-                    if not group_name or not specialty:
-                        raise ValueError("Заполните данные для студента")
-                
-                server.db.add_user(login, password, role, full_name, group_name, course, specialty, self.user["id"])
-                messagebox.showinfo("Успех", "Пользователь добавлен")
-                dialog.destroy()
-                self.refresh_users()
-            except ValueError as e:
-                messagebox.showerror("Ошибка", str(e))
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Ошибка добавления: {e}")
-        
-        ctk.CTkButton(frame, text="Добавить", command=save).pack(fill="x")
-    
-    # ==================== ЛОГИ (Admin) ====================
-    
-    def setup_logs_tab(self):
-        """Настройка вкладки Логи"""
-        # Заголовок
-        title_label = ctk.CTkLabel(
-            self.tab_logs,
-            text="📋 Журнал действий пользователей",
-            font=ctk.CTkFont(size=18, weight="bold")
-        )
-        title_label.pack(pady=10)
-        
-        # Кнопка обновления
-        refresh_btn = ctk.CTkButton(
-            self.tab_logs,
-            text="🔄 Обновить",
-            command=self.refresh_logs
-        )
-        refresh_btn.pack(pady=10)
-        
-        # Таблица логов
-        table_frame = ctk.CTkFrame(self.tab_logs, fg_color="#2b2b2b")
-        table_frame.pack(fill="both", expand=True, padx=20, pady=10)
-        
-        columns = ("timestamp", "user_name", "action", "details")
-        self.logs_tree = ttk.Treeview(table_frame, columns=columns, show="headings")
-        
-        self.logs_tree.heading("timestamp", text="Время")
-        self.logs_tree.heading("user_name", text="Пользователь")
-        self.logs_tree.heading("action", text="Действие")
-        self.logs_tree.heading("details", text="Детали")
-        
-        self.logs_tree.column("timestamp", width=180)
-        self.logs_tree.column("user_name", width=150)
-        self.logs_tree.column("action", width=150)
-        self.logs_tree.column("details", width=400)
-        
-        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.logs_tree.yview)
-        self.logs_tree.configure(yscrollcommand=scrollbar.set)
-        
-        self.logs_tree.pack(side="left", fill="both", expand=True, padx=10, pady=10)
-        scrollbar.pack(side="right", fill="y", pady=10)
-    
-    def refresh_logs(self):
-        """Обновление логов"""
-        try:
-            for item in self.logs_tree.get_children():
-                self.logs_tree.delete(item)
-            
-            logs = server.db.get_logs(100)
-            action_names = {
-                "change_role": "Смена роли",
-                "add_user": "Добавление пользователя",
-                "delete_user": "Удаление пользователя",
-                "update_grade": "Изменение оценки",
-                "add_grade": "Добавление оценки",
-                "delete_grade": "Удаление оценки"
-            }
-            
-            for log in logs:
-                self.logs_tree.insert("", "end", values=(
-                    log["timestamp"],
-                    log["user_name"] or "Система",
-                    action_names.get(log["action"], log["action"]),
-                    log["details"]
-                ))
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Ошибка загрузки логов: {e}")
-    
-    # ==================== НАСТРОЙКИ ====================
-    
-    def setup_settings_tab(self):
-        """Настройка вкладки Настройки"""
-        settings_frame = ctk.CTkFrame(self.tab_settings, fg_color="transparent")
-        settings_frame.pack(fill="both", expand=True, padx=40, pady=40)
-        
-        # Информация о пользователе
-        info_card = ctk.CTkFrame(settings_frame, fg_color="#2b2b2b", corner_radius=10)
-        info_card.pack(fill="x", pady=(0, 20))
-        
-        ctk.CTkLabel(
-            info_card,
-            text="ℹ️ Информация о пользователе",
-            font=ctk.CTkFont(size=16, weight="bold")
-        ).pack(pady=15)
-        
-        info_text = f"""
-Логин: {self.user['login']}
-ФИО: {self.user['full_name']}
-Роль: {self.translate_role(self.user['role'])}
-ID: {self.user['id']}
-        """.strip()
-        
-        ctk.CTkLabel(
-            info_card,
-            text=info_text,
-            font=ctk.CTkFont(size=14),
-            justify="left"
-        ).pack(pady=15)
-        
-        # Переключатель темы
-        theme_card = ctk.CTkFrame(settings_frame, fg_color="#2b2b2b", corner_radius=10)
-        theme_card.pack(fill="x", pady=(0, 20))
-        
-        ctk.CTkLabel(
-            theme_card,
-            text="🎨 Тема оформления",
-            font=ctk.CTkFont(size=16, weight="bold")
-        ).pack(pady=15)
-        
-        theme_frame = ctk.CTkFrame(theme_card, fg_color="transparent")
-        theme_frame.pack(pady=10)
-        
-        self.theme_switch = ctk.CTkSwitch(
-            theme_frame,
-            text="Светлая тема",
-            command=self.toggle_theme,
-            onvalue="light",
-            offvalue="dark"
-        )
-        self.theme_switch.pack()
-        
-        # Кнопка выхода
-        logout_btn = ctk.CTkButton(
-            settings_frame,
-            text="🚪 Выйти из системы",
-            height=50,
-            font=ctk.CTkFont(size=16, weight="bold"),
-            fg_color="#e74c3c",
-            hover_color="#c0392b",
-            command=self.logout
-        )
-        logout_btn.pack(fill="x", pady=20)
-        
-        # Версия
-        ctk.CTkLabel(
-            settings_frame,
-            text="ИАС ПолесГУ v1.0\nСистема оценки успеваемости студентов инженерного факультета",
-            font=ctk.CTkFont(size=12),
-            text_color="gray"
-        ).pack(pady=20)
-    
-    def toggle_theme(self):
-        """Переключение темы"""
-        if self.theme_switch.get() == "light":
-            ctk.set_appearance_mode("light")
-            self.top_frame.configure(fg_color="#f0f0f0")
-        else:
-            ctk.set_appearance_mode("dark")
-            self.top_frame.configure(fg_color="#2b2b2b")
-    
+            canvas.get_tk_widget().pack(pady=20)
+
+    def create_bar_chart(self, parent, title, data, x_key, y_key, color):
+        if not data: return
+        fig = Figure(figsize=(10, 5), dpi=100)
+        ax = fig.add_subplot(111)
+        labels = [str(d[x_key]) for d in data]
+        values = [d[y_key] for d in data]
+        ax.bar(labels, values, color=color)
+        ax.set_title(title)
+        ax.set_ylim(0, 10)
+        ax.axhline(y=4, color='red', linestyle='--', label='Мин. порог (4)')
+        ax.legend()
+        canvas = FigureCanvasTkAgg(fig, master=parent)
+        canvas.draw()
+        canvas.get_tk_widget().pack(pady=20)
+
+    def create_users_tab(self):
+        ctk.CTkLabel(self.main_area, text="Управление пользователями", font=ctk.CTkFont(size=24, weight="bold")).pack(anchor="w", pady=(0,15))
+        users = self.db.get_all_users()
+        columns = ("login", "fio", "role", "group", "status")
+        tree = ttk.Treeview(self.main_area, columns=columns, show="headings", height=20)
+        tree.heading("login", text="Логин"); tree.heading("fio", text="ФИО"); tree.heading("role", text="Роль"); tree.heading("group", text="Группа"); tree.heading("status", text="Статус")
+        tree.column("login", width=120); tree.column("fio", width=250); tree.column("role", width=100); tree.column("group", width=100); tree.column("status", width=80)
+        role_colors_map = {'admin': COLORS['admin_bg'], 'teacher': COLORS['teacher_bg'], 'student': COLORS['student_bg']}
+        for u in users:
+            status = "Активен" if u['is_active'] else "Заблокирован"
+            color = role_colors_map.get(u['role'], 'gray')
+            tree.insert("", "end", values=(u['login'], u['full_name'], u['role'], u.get('group_name',''), status), tags=(u['role'],))
+            tree.tag_configure(u['role'], foreground=color)
+        def on_right_click(event):
+            if self.user['role'] != 'admin': return
+            sel = tree.selection()
+            if not sel: return
+            idx = tree.index(sel[0])
+            user = users[idx]
+            menu = tk.Menu(self, tearoff=0)
+            if user['role'] == 'student':
+                menu.add_command(label="Назначить преподавателем", command=lambda: self.change_role(user['id'], 'teacher'))
+                menu.add_command(label="Назначить админом", command=lambda: self.change_role(user['id'], 'admin'))
+            elif user['role'] == 'teacher':
+                menu.add_command(label="Вернуть в студенты", command=lambda: self.change_role(user['id'], 'student'))
+            menu.add_separator()
+            menu.add_command(label="Заблокировать/Разблокировать", command=lambda: self.toggle_active(user['id']))
+            menu.tk_popup(event.x_root, event.y_root)
+        tree.bind("<Button-3>", on_right_click)
+        tree.pack(fill="both", expand=True, pady=10)
+
+    def change_role(self, user_id, new_role):
+        ok, msg = self.db.update_user_role(user_id, new_role, self.user['id'])
+        messagebox.showinfo("Результат", msg)
+        if ok: self.create_users_tab()
+
+    def toggle_active(self, user_id):
+        ok, msg = self.db.toggle_user_active(user_id, self.user['id'])
+        messagebox.showinfo("Результат", msg)
+        if ok: self.create_users_tab()
+
+    def create_logs_tab(self):
+        ctk.CTkLabel(self.main_area, text="Журнал действий", font=ctk.CTkFont(size=24, weight="bold")).pack(anchor="w", pady=(0,15))
+        logs = self.db.get_logs(200)
+        columns = ("time", "user", "action", "details")
+        tree = ttk.Treeview(self.main_area, columns=columns, show="headings", height=25)
+        tree.heading("time", text="Время"); tree.heading("user", text="Пользователь"); tree.heading("action", text="Действие"); tree.heading("details", text="Детали")
+        tree.column("time", width=150); tree.column("user", width=150); tree.column("action", width=120); tree.column("details", width=400)
+        for log in logs:
+            tree.insert("", "end", values=(log['timestamp'][:19], log['user_name'] or 'System', log['action'], log['details'] or ''))
+        tree.pack(fill="both", expand=True, pady=10)
+
+    def create_settings_tab(self):
+        ctk.CTkLabel(self.main_area, text="Настройки", font=ctk.CTkFont(size=24, weight="bold")).pack(anchor="w", pady=(0,20))
+        settings_frame = ctk.CTkFrame(self.main_area)
+        settings_frame.pack(fill="x", padx=50, pady=10)
+        ctk.CTkLabel(settings_frame, text=f"Пользователь: {self.user['full_name']}", font=ctk.CTkFont(size=16)).pack(anchor="w", pady=10)
+        ctk.CTkLabel(settings_frame, text=f"Роль: {self.user['role']}", font=ctk.CTkFont(size=14)).pack(anchor="w", pady=5)
+        ctk.CTkLabel(settings_frame, text=f"Логин: {self.user['login']}", font=ctk.CTkFont(size=14)).pack(anchor="w", pady=5)
+        ctk.CTkLabel(settings_frame, text="Тема оформления:", font=ctk.CTkFont(size=14)).pack(anchor="w", pady=(20,5))
+        def toggle_theme():
+            current = ctk.get_appearance_mode()
+            new = "dark" if current == "light" else "light"
+            ctk.set_appearance_mode(new)
+        ctk.CTkButton(settings_frame, text="Переключить тему", command=toggle_theme).pack(anchor="w", pady=10)
+        ctk.CTkButton(settings_frame, text="Выход", fg_color=COLORS['danger'], command=self.logout).pack(anchor="w", pady=20)
+
     def logout(self):
-        """Выход из системы"""
-        if messagebox.askyesno("Выход", "Вы действительно хотите выйти?"):
-            self.destroy()
-            start_app()
-
-
-def start_app():
-    """Запуск приложения"""
-    def on_login_success(user):
-        app = MainWindow(user)
-        app.mainloop()
-    
-    login = LoginWindow(on_login_success)
-    login.mainloop()
+        self.destroy()
+        LoginWindow(self.db).mainloop()
 
 
 if __name__ == "__main__":
-    start_app()
+    from server import Database
+    db = Database()
+    LoginWindow(db).mainloop()
