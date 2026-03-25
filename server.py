@@ -8,20 +8,48 @@ import bcrypt
 import os
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
+import threading
 
 DB_PATH = "polesgu_system.db"
 
 class Database:
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls, db_path: str = DB_PATH):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+    
     def __init__(self, db_path: str = DB_PATH):
+        if self._initialized:
+            return
         self.db_path = db_path
         self.conn = None
         self.cursor = None
         self.connect()
         self.create_tables()
+        self._initialized = True
         
     def connect(self):
-        """Подключение к БД"""
-        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        """Подключение к БД с настройками для предотвращения блокировок"""
+        if self.conn:
+            try:
+                self.conn.close()
+            except:
+                pass
+        self.conn = sqlite3.connect(
+            self.db_path, 
+            check_same_thread=False,
+            timeout=30.0,
+            isolation_level=None
+        )
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.execute("PRAGMA busy_timeout=30000")
         self.conn.row_factory = sqlite3.Row
         self.cursor = self.conn.cursor()
         
@@ -137,14 +165,14 @@ class Database:
         ''', ('admin', admin_hash, 'admin', 'Администратор Системы', 'admin@polesgu.by'))
         admin_id = self.cursor.lastrowid
         
-        # Создание преподавателей
+        # Создание преподавателей - используем один хеш для скорости
         teacher_ids = []
+        teacher_hash = bcrypt.hashpw("password".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         for i in range(1, 6):
-            pwd_hash = bcrypt.hashpw("password".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
             self.cursor.execute('''
                 INSERT INTO users (login, password_hash, role, full_name, email)
                 VALUES (?, ?, ?, ?, ?)
-            ''', (f'teacher{i}', pwd_hash, 'teacher', f'Преподаватель {i}', f'teacher{i}@polesgu.by'))
+            ''', (f'teacher{i}', teacher_hash, 'teacher', f'Преподаватель {i}', f'teacher{i}@polesgu.by'))
             teacher_ids.append(self.cursor.lastrowid)
         
         # Группы и специальности
@@ -154,6 +182,9 @@ class Database:
             ("ПР", "Природопользование и экология")
         ]
         
+        # Один хеш для всех студентов (демо-данные, безопасность не критична)
+        student_hash = bcrypt.hashpw("password".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
         # Создание студентов (250 штук)
         student_count = 0
         specialties_map = {
@@ -161,6 +192,10 @@ class Database:
             "ЛП": "Лесное хозяйство",
             "ПР": "Природопользование"
         }
+        
+        # Подготовка всех INSERT для студентов
+        student_inserts = []
+        student_data_for_db = []
         
         for course in range(1, 6):
             for group_prefix, specialty in groups_data:
@@ -170,21 +205,28 @@ class Database:
                     for student_num in range(1, 6 if course < 5 else 5):  # ~250 студентов
                         student_count += 1
                         login = f"student{student_count}"
-                        pwd_hash = bcrypt.hashpw("password".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                         full_name = f"Студентов Студент {student_count}ович"
-                        
-                        self.cursor.execute('''
-                            INSERT INTO users (login, password_hash, role, full_name, email)
-                            VALUES (?, ?, ?, ?, ?)
-                        ''', (login, pwd_hash, 'student', full_name, f'{login}@polesgu.by'))
-                        user_id = self.cursor.lastrowid
-                        
                         enrollment_year = 2024 - course + 1
                         
-                        self.cursor.execute('''
-                            INSERT INTO students (user_id, group_name, course, semester, specialty, enrollment_year)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        ''', (user_id, group_name, course, 1, specialty, enrollment_year))
+                        student_inserts.append((login, student_hash, 'student', full_name, f'{login}@polesgu.by', group_name, course, 1, specialty, enrollment_year))
+        
+        # Массовая вставка пользователей
+        self.cursor.executemany('''
+            INSERT INTO users (login, password_hash, role, full_name, email)
+            VALUES (?, ?, ?, ?, ?)
+        ''', [(item[0], item[1], item[2], item[3], item[4]) for item in student_inserts])
+        
+        # Получаем все ID пользователей
+        self.cursor.execute("SELECT id, login FROM users WHERE role='student' ORDER BY id")
+        student_user_map = {row[1]: row[0] for row in self.cursor.fetchall()}
+        
+        # Вставка записей о студентах
+        for item in student_inserts:
+            user_id = student_user_map[item[0]]
+            self.cursor.execute('''
+                INSERT INTO students (user_id, group_name, course, semester, specialty, enrollment_year)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, item[5], item[6], item[7], item[8], item[9]))
         
         # Создание дисциплин
         disciplines = [
